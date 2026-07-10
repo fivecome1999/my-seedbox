@@ -1,0 +1,19 @@
+# qBittorrent 版本清单
+# ---------------------------------------------------------------------------
+# 每行一个可安装版本，字段用 | 分隔：
+#   qb_version | libtorrent_version | 配置格式代号 | 简短说明
+#
+# - qb_version      : qBittorrent 版本号，同时是 bin/qbittorrent/<qb_version>/ 目录名
+# - libtorrent_ver  : 该二进制静态链接的 libtorrent 版本（仅供展示/记录）
+# - 配置格式代号    : 决定生成 qBittorrent.conf 的模板，取值：
+#                       legacy43  → 4.2.x / 4.3.x 系列的配置键格式
+#                       modern44  → 4.4.x 及以后（含 5.x）的配置键格式
+#                     （两者的 WebUI 密码都用 PBKDF2；区别在缓存/存盘等键名）
+# - 说明            : 菜单里展示给用户的一句话
+#
+# 要新增一个 qB 版本：在本文件加一行，并把编译好的静态 qbittorrent-nox
+# 放进 bin/qbittorrent/<版本>/<架构>/qbittorrent-nox 推到仓库即可。
+# 若新版配置格式与现有模板不同，再在 lib/qbittorrent.sh 里加一个模板分支。
+# ---------------------------------------------------------------------------
+5.0.4|2.0.11|modern44|qBittorrent 5.0.4（推荐，现代配置格式）
+4.3.8|1.2.19|legacy43|qBittorrent 4.3.8（经典版，兼容老 tracker）
