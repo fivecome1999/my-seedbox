@@ -238,6 +238,8 @@ BBR 编译需要几分钟，稍等后再查 `sysctl net.ipv4.tcp_congestion_cont
 
 ## 致谢
 
+- 本项目绝大部分的思路、架构与二进制编译方式，均源自 [jerry048/Dedicated-Seedbox](https://github.com/jerry048/Dedicated-Seedbox)（及其组件仓库 [jerry048/Seedbox-Components](https://github.com/jerry048/Seedbox-Components)），在此特别感谢。
+- 同样感谢 [guowanghushifu/Dedicated-Seedbox-Mod](https://github.com/guowanghushifu/Dedicated-Seedbox-Mod)（及 [guowanghushifu/Seedbox-Components](https://github.com/guowanghushifu/Seedbox-Components)），本项目移植自其保留的旧版架构，具体实现细节大量参考于此。
 - BBR 编译机制参考 [KozakaiAya/TCP_BBR](https://github.com/KozakaiAya/TCP_BBR)
 - 密码工具 [KozakaiAya/libqbpasswd](https://github.com/KozakaiAya/libqbpasswd)
 - qBittorrent 静态编译 [userdocs/qbittorrent-nox-static](https://github.com/userdocs/qbittorrent-nox-static)
