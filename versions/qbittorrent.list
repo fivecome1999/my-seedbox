@@ -15,5 +15,5 @@
 # 放进 bin/qbittorrent/<版本>/<架构>/qbittorrent-nox 推到仓库即可。
 # 若新版配置格式与现有模板不同，再在 lib/qbittorrent.sh 里加一个模板分支。
 # ---------------------------------------------------------------------------
-5.0.4|2.0.11|modern44|qBittorrent 5.0.4（推荐，现代配置格式）
-4.3.8|1.2.19|legacy43|qBittorrent 4.3.8（经典版，兼容老 tracker）
+5.0.4|1.2.20|modern44|qBittorrent 5.0.4（推荐，现代配置格式）
+4.3.8|1.1.14|legacy43|qBittorrent 4.3.8（经典版，兼容老 tracker）
