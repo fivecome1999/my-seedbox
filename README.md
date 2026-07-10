@@ -40,8 +40,7 @@ bash <(wget -qO- https://raw.githubusercontent.com/fivecome1999/my-seedbox/main/
 **无人值守（一行装完）：**
 
 ```bash
-bash <(wget -qO- https://raw.githubusercontent.com/fivecome1999/my-seedbox/main/install.sh) \
-     -u admin -p 'YourPassword' -c 2048 -q 5.0.4 -t -x bbrx
+bash <(wget -qO- https://raw.githubusercontent.com/fivecome1999/my-seedbox/main/install.sh) -u 'Username' -p 'Password' -c 2048 -q 5.0.4 -t -x bbrx
 ```
 
 ### 命令行参数
