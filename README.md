@@ -178,11 +178,19 @@ sysctl net.ipv4.tcp_congestion_control
 ```bash
 # 交互菜单
 bash <(wget -qO- https://raw.githubusercontent.com/fivecome1999/my-seedbox/main/bbr_switch.sh)
+```
 
-# 直接切换到指定变种
+```bash
+# 直接切换到指定变种，例如bbrx
 bash bbr_switch.sh bbrx
-bash bbr_switch.sh bbrx_old
+```
 
+```bash
+# 直接切换到指定变种，例如bbrx_old
+bash bbr_switch.sh bbrx_old
+```
+
+```bash
 # 只看当前状态
 bash bbr_switch.sh status
 ```
