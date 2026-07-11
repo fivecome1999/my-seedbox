@@ -182,17 +182,17 @@ bash <(wget -qO- https://raw.githubusercontent.com/fivecome1999/my-seedbox/main/
 
 ```bash
 # 直接切换到指定变种，例如bbrx
-bash bbr_switch.sh bbrx
+bash <(wget -qO- https://raw.githubusercontent.com/fivecome1999/my-seedbox/main/bbr_switch.sh) bbrx
 ```
 
 ```bash
 # 直接切换到指定变种，例如bbrx_old
-bash bbr_switch.sh bbrx_old
+bash <(wget -qO- https://raw.githubusercontent.com/fivecome1999/my-seedbox/main/bbr_switch.sh) bbrx_old
 ```
 
 ```bash
 # 只看当前状态
-bash bbr_switch.sh status
+bash <(wget -qO- https://raw.githubusercontent.com/fivecome1999/my-seedbox/main/bbr_switch.sh) status
 ```
 
 **智能切换逻辑**：
