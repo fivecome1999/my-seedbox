@@ -162,11 +162,18 @@ fi
 sed -i '/tcp_bbrx_old/d' /etc/modules
 echo $bbr_file | tee -a /etc/modules
 
+# 持久化 sysctl：必须写 /etc/sysctl.d/（Debian 13 起 systemd 移除了兼容符号链接，
+# 开机不再读取 /etc/sysctl.conf，写在那里会导致重启后拥塞控制回落 cubic）。
+# 同时清掉 /etc/sysctl.conf 里的旧条目，避免两处配置漂移混淆。
+# 注意：这里写的是内核算法名 $ca_name（bbrxold），不是模块名。
 sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
-echo "net.core.default_qdisc = fq" >> /etc/sysctl.conf
 sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
-echo "net.ipv4.tcp_congestion_control = $ca_name" >> /etc/sysctl.conf
-sysctl -p > /dev/null
+cat > /etc/sysctl.d/99-zz-seedbox-bbr.conf << EOF
+# 由 my-seedbox BBR 安装脚本生成（zz 前缀确保排序在其它 99-* 之后、优先生效）
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = $ca_name
+EOF
+sysctl -p /etc/sysctl.d/99-zz-seedbox-bbr.conf > /dev/null
 
 cd $HOME
 rm -r $HOME/.bbr
@@ -175,4 +182,5 @@ rm -r $HOME/.bbr
 systemctl disable bbrinstall.service > /dev/null 2>&1
 rm /etc/systemd/system/bbrinstall.service > /dev/null 2>&1
 rm /root/BBRx_old.sh > /dev/null 2>&1
+echo "BBR ($ca_name) 安装完成，已即时生效。系统将在 1 分钟后自动重启一次完成收尾。"
 shutdown -r +1

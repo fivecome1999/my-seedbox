@@ -138,11 +138,15 @@ persist_and_apply(){
     sed -i "\#^${mod}\$#d" /etc/modules 2>/dev/null || true
     grep -qx "$mod" /etc/modules 2>/dev/null || echo "$mod" >> /etc/modules
   fi
-  # sysctl：qdisc + 拥塞控制
+  # 持久化必须写 /etc/sysctl.d/（Debian 13 起开机不再读取 /etc/sysctl.conf）。
+  # 同时清掉 sysctl.conf 里的旧条目，避免两处配置漂移。
   sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
   sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
-  echo "net.core.default_qdisc = fq" >> /etc/sysctl.conf
-  echo "net.ipv4.tcp_congestion_control = $ca" >> /etc/sysctl.conf
+  cat > /etc/sysctl.d/99-zz-seedbox-bbr.conf <<EOF
+# 由 my-seedbox bbr_switch.sh 生成（zz 前缀确保排序在其它 99-* 之后、优先生效）
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = $ca
+EOF
   sysctl -w net.core.default_qdisc=fq >/dev/null 2>&1 || true
   sysctl -w "net.ipv4.tcp_congestion_control=$ca" >/dev/null 2>&1
 }

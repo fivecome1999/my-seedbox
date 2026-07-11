@@ -102,17 +102,37 @@ bbr_install() {
     info "准备安装 BBR 变种：${name}"
     ensure_packages dkms || return 1
 
+    # 关键前置：确保"重启后运行的内核"有可安装的匹配头文件。
+    # 云镜像自带的内核往往已被软件源淘汰（对应 headers 已下架），导致重启后
+    # 编译失败并静默等待下次重试（表现为"要重启两次才装上"）。
+    # 这里先把最新内核+头文件装好，重启后即以新内核编译，一次重启即可完成。
+    info "预装最新内核与头文件（确保重启后可编译，可能需要下载几十MB）..."
+    apt_refresh
+    local karch kflavor img_pkg hdr_pkg
+    karch="$(dpkg --print-architecture 2>/dev/null || echo amd64)"
+    if uname -r | grep -q '\-cloud-'; then kflavor="cloud-"; else kflavor=""; fi
+    img_pkg="linux-image-${kflavor}${karch}"
+    hdr_pkg="linux-headers-${kflavor}${karch}"
+    if DEBIAN_FRONTEND=noninteractive apt-get -y install "$img_pkg" "$hdr_pkg" >/dev/null 2>&1; then
+        info "内核与头文件已就绪（${img_pkg} / ${hdr_pkg}）。"
+    else
+        warn "内核/头文件预装未完全成功（可能被后台更新占用 apt 锁），编译阶段会再次尝试。"
+    fi
+
     if ! fetch_file "$script_rel" "$script_local"; then
         error "下载安装脚本失败：$script_rel"
         return 1
     fi
     chmod +x "$script_local"
 
-    # 建立开机自启服务（一次性，编译完由脚本自身清理）
+    # 建立开机自启服务（一次性，编译完由脚本自身清理）。
+    # 必须等待网络真正可用（network-online），network.target 不保证连通性，
+    # 否则开机过早执行会因下载源码失败而中断。
     cat >/etc/systemd/system/bbrinstall.service <<EOF
 [Unit]
 Description=BBR (${name}) delayed install
-After=network.target
+Wants=network-online.target
+After=network-online.target network.target
 
 [Service]
 Type=oneshot
@@ -127,8 +147,9 @@ EOF
     local caname
     caname="$(bbr_caname_for "$id")"
     success "已配置 ${name} 安装服务。"
-    warn "BBR 需要在重启后针对当前内核编译。重启后请等待 2-3 分钟，"
-    warn "然后用  sysctl net.ipv4.tcp_congestion_control  确认是否已切换为 ${caname}。"
+    warn "重启后系统会自动编译 BBR（约 2-3 分钟），完成后会【自动再重启一次】收尾。"
+    warn "两次重启都结束后，用  sysctl net.ipv4.tcp_congestion_control  确认已切换为 ${caname}。"
+    warn "若等待 10 分钟仍未生效，用  journalctl -u bbrinstall.service -b -1  查看编译日志排查。"
     return 0
 }
 
@@ -138,13 +159,18 @@ bbr_restore_default() {
     # 移除定制模块的开机加载项（幂等）
     sed -i '/tcp_bbrx_old/d;/tcp_bbrx/d;/tcp_bbrz/d' /etc/modules 2>/dev/null || true
 
+    # 持久化写 /etc/sysctl.d/（Debian 13 开机不读 /etc/sysctl.conf），
+    # 并清掉 sysctl.conf 里的旧条目防止混淆。
     sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
     sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
-    echo "net.core.default_qdisc = fq" >> /etc/sysctl.conf
-    echo "net.ipv4.tcp_congestion_control = bbr" >> /etc/sysctl.conf
-    sysctl -p >/dev/null 2>&1 || true
+    cat >/etc/sysctl.d/99-zz-seedbox-bbr.conf <<'EOF'
+# 由 my-seedbox 生成：系统自带 BBR
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+EOF
     modprobe tcp_bbr 2>/dev/null || true
-    success "已切换回系统自带 BBR，建议重启后生效。"
+    sysctl -p /etc/sysctl.d/99-zz-seedbox-bbr.conf >/dev/null 2>&1 || true
+    success "已切换回系统自带 BBR。"
 }
 
 # 卸载定制 BBR 的 dkms 模块（可选清理）

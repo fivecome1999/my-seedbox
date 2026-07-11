@@ -1,12 +1,3 @@
-## ⚠️ 免责声明
-
-本项目提供的所有内容仅供学习、交流和研究使用。
-
-1. **风险提示**：使用者在运行本项目代码时所产生的任何直接或间接后果均由使用者自行承担，作者概不负责。
-2. **合法使用**：请遵守相关法律法规，严禁将本项目用于任何非法用途。
-3. **现状提供**：本项目按“原样”提供，不提供任何形式的明示或暗示的保证（包括但不限于适销性、特定用途的适用性或不侵权的保证）。
-
-
 # my-seedbox
 
 一体化 Seedbox 安装脚本。单入口 `install.sh`，`wget` 一条命令即可安装，支持**交互菜单**和**命令行无人值守**两种方式。
@@ -87,17 +78,20 @@ my-seedbox/
 │   ├── BBRx/                      # BBRx：安装脚本 + C 源码（D12/D13）
 │   ├── BBRz/                      # BBRz：安装脚本 + C 源码（D12/D13）
 │   └── BBRx_old/                 # BBRx_old：安装脚本 + C 源码 + 适配 diff
-└── bin/                          # 二进制文件（见下）
+└── bin/                          # 你自行放置的二进制（见下）
     ├── qbittorrent/<版本>/<架构>/qbittorrent-nox
     └── tools/<架构>/libqbpasswd
 ```
 
 ---
 
+## 部署前需要你放置的二进制
+
+脚本本身不含大的二进制文件，需要你把以下文件放进仓库对应位置后再 `git push`：
 
 ### 1. qBittorrent 静态可执行文件
 
-**静态编译**版（自带依赖，直接可跑），文件名固定为 `qbittorrent-nox`：
+必须是**静态编译**版（自带依赖，直接可跑），文件名固定为 `qbittorrent-nox`：
 
 ```
 bin/qbittorrent/5.0.4/amd64/qbittorrent-nox
@@ -229,10 +223,19 @@ bash bbr_switch.sh status
 先看日志：`journalctl -u qbittorrent-nox@<用户名> -n 50`。若报缺少动态库（`.so` 找不到），说明放进去的不是静态编译版，请更换为静态二进制。
 
 **Q：重启后 BBR 没生效？**
-BBR 编译需要几分钟，稍等后再查 `sysctl net.ipv4.tcp_congestion_control`。若始终无效，检查是否安装了对应内核的 headers、以及 `dkms status` 的输出。
+先明确正常流程：确认安装 → 重启 → 系统自动编译（2-3 分钟）→ **自动再重启一次**收尾 → 生效。所以总共会经历两次重启（第二次是自动的），全程约 5 分钟。
+
+若等待后仍未生效，用 `journalctl -u bbrinstall.service -b -1` 查看上次开机的编译日志。常见原因：
+- 云镜像自带的内核太老，软件源里已无对应 headers（脚本已通过安装前预装最新内核规避，若日志显示此错误可手动 `apt update && apt full-upgrade` 后重装）
+- 开机时网络未就绪导致下载失败（服务已配置等待 network-online，一般不会再发生）
+
+失败时服务会保留并在下次重启时自动重试，因此有时"多重启一次就好了"。
+
+**Q：模块加载了（lsmod 能看到）但算法还是 cubic？**
+这是 Debian 13 特有的坑：trixie 的 systemd 移除了 `/etc/sysctl.d/99-sysctl.conf` 兼容符号链接，**开机不再读取 `/etc/sysctl.conf`**。写在那里的 `tcp_congestion_control` 会被静默忽略。本项目已改为写入 `/etc/sysctl.d/99-zz-seedbox-bbr.conf`（开机会读）。若你从旧版本升级，重新执行一次 BBR 安装或切换即可修复；或手动创建该文件后 `sysctl --system`。
 
 **Q：想换回系统自带 BBR？**
-进 BBR 菜单选「恢复系统自带 BBR」，或手动执行相应 sysctl 恢复。
+进 BBR 菜单选「恢复系统自带 BBR」，或运行 `bash bbr_switch.sh bbr`。
 
 ---
 
