@@ -1,8 +1,58 @@
 #!/bin/bash
+# ---------------------------------------------------------------------------
+# 开机环境加固（在 systemd 早期启动时运行，环境与交互式 shell 差异很大）：
+#   1) systemd 服务默认不设置 $HOME，而下文大量使用 $HOME，必须保底。
+#   2) 开机时网络/DNS 往往尚未就绪（尤其当 networking.service 因 IPv6 DAD
+#      超时等原因被标记为 failed 时，network-online.target 也不可靠），
+#      直接 wget 会因 "Temporary failure in name resolution" 失败。
+#      这里主动轮询等待 DNS 真正可用，而不是依赖 systemd 的 target。
+# ---------------------------------------------------------------------------
+export HOME="${HOME:-/root}"
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# 等待网络与 DNS 就绪（最多 180 秒）
+wait_for_network() {
+    local i=0
+    while [ $i -lt 60 ]; do
+        if getent hosts raw.githubusercontent.com >/dev/null 2>&1; then
+            echo "网络与 DNS 已就绪（等待 $((i*3)) 秒）。"
+            return 0
+        fi
+        i=$((i+1))
+        sleep 3
+    done
+    echo "Error: 等待 180 秒后 DNS 仍不可用，无法下载源码。" >&2
+    return 1
+}
+
+# 带重试的下载（最多 5 次），并校验产物非空
+download_retry() {
+    local url="$1" out="$2" n=0
+    while [ $n -lt 5 ]; do
+        n=$((n+1))
+        if wget -q -O "$out" "$url" && [ -s "$out" ]; then
+            echo "源码下载成功（第 ${n} 次尝试）：$out"
+            return 0
+        fi
+        echo "下载失败（第 ${n} 次），10 秒后重试：$url" >&2
+        rm -f "$out"
+        sleep 10
+    done
+    echo "Error: 重试 5 次后仍无法下载 $url" >&2
+    return 1
+}
+
 echo "----BBRx Install----"
 sleep 10s
+
+# 先等网络真正可用，再做任何需要联网的事
+if ! wait_for_network; then
+    echo "Error: 网络不可用，本次编译中止。服务保持 enabled，下次重启会自动重试。" >&2
+    exit 1
+fi
+
 ## Installing BBR
-cd $HOME
+cd "$HOME" || exit 1
 
 ## This part of the script is modified from https://github.com/KozakaiAya/TCP_BBR
 #Install dkms if not installed
@@ -86,10 +136,10 @@ case "$ID:${VERSION_ID%%.*}" in
         exit 1
         ;;
 esac
-wget -O $HOME/tcp_bbrx.c "$bbrx_source_url"
-if [ ! -f $HOME/tcp_bbrx.c ]; then
-	echo "Error: Download failed! Exiting." >&2
-	exit 1
+# 带重试的下载；失败即中止，绝不拿空文件去编译（否则 dkms 会报难以理解的 make 错误）
+if ! download_retry "$bbrx_source_url" "$HOME/tcp_bbrx.c"; then
+    echo "Error: 源码下载失败，本次编译中止。服务保持 enabled，下次重启会自动重试。" >&2
+    exit 1
 fi
 # DKMS 模块版本（与内核无关）。建议固定或使用日期字符串
 module_ver=1.0.0
@@ -135,6 +185,10 @@ fi
 
 dkms build -m $algo -v $module_ver
 if [ ! $? -eq 0 ]; then
+    echo "Error: dkms 编译失败。make.log 内容如下：" >&2
+    cat "/var/lib/dkms/$algo/$module_ver/build/make.log" 2>/dev/null | tail -40 >&2
+    cp "/var/lib/dkms/$algo/$module_ver/build/make.log" "/root/bbr-build-fail-$algo.log" 2>/dev/null
+    echo "（完整日志已另存到 /root/bbr-build-fail-$algo.log）" >&2
     sed -i '/tcp_bbrx/d' /etc/modules
     dkms remove -m $algo/$module_ver --all
     exit 1

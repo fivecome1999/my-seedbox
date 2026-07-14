@@ -128,6 +128,11 @@ bbr_install() {
     # 建立开机自启服务（一次性，编译完由脚本自身清理）。
     # 必须等待网络真正可用（network-online），network.target 不保证连通性，
     # 否则开机过早执行会因下载源码失败而中断。
+    # 一次性安装服务。安装脚本内部已实现"主动等待网络就绪(最多180秒) + 下载重试
+    # (最多5次)"，因此即使开机时 networking.service 因 IPv6 DAD 超时等原因短暂
+    # failed、network-online.target 不可靠，脚本也会自行轮询等待 DNS，不会误编译。
+    # 故此处用纯 oneshot 即可（注意：oneshot 与 Restart= 不兼容，不能加 Restart）。
+    # 若某次编译最终仍失败，服务保持 enabled 状态，下次重启会再次运行重试。
     cat >/etc/systemd/system/bbrinstall.service <<EOF
 [Unit]
 Description=BBR (${name}) delayed install
@@ -138,6 +143,7 @@ After=network-online.target network.target
 Type=oneshot
 ExecStart=${script_local}
 RemainAfterExit=true
+TimeoutStartSec=600
 
 [Install]
 WantedBy=multi-user.target
