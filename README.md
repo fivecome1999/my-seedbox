@@ -31,7 +31,8 @@ bash <(wget -qO- https://raw.githubusercontent.com/fivecome1999/my-seedbox/main/
 **无人值守（一行装完）：**
 
 ```bash
-bash <(wget -qO- https://raw.githubusercontent.com/fivecome1999/my-seedbox/main/install.sh) -u 'Username' -p 'Password' -c 2048 -q 5.0.4 -t -x bbrx
+bash <(wget -qO- https://raw.githubusercontent.com/fivecome1999/my-seedbox/main/install.sh) \
+     -u admin -p 'YourPassword' -c 2048 -q 5.0.4 -t -x bbrx
 ```
 
 ### 命令行参数
@@ -235,6 +236,11 @@ bash bbr_switch.sh status
 
 **Q：想换回系统自带 BBR？**
 进 BBR 菜单选「恢复系统自带 BBR」，或运行 `bash bbr_switch.sh bbr`。
+
+**Q：系统优化最后一步"提高初始拥塞窗口"提示未能设置/已跳过？**
+分两种情况：
+- 提示"检测到多路径(ECMP)默认路由，已跳过"——这是**正常情况，不是故障**。多网卡负载均衡的独立服务器常见此配置，而 `initcwnd`/`initrwnd` 这两个参数本身不支持挂在多路径路由上，这是 iproute2 的语法限制，无法绕过，跳过是唯一正确的处理方式，不影响其它任何优化项。
+- 提示"设置失败，内核报错：xxx"——说明遇到了其它情况，日志里会打印内核给出的具体原因，可据此判断（例如路由被其它进程并发修改、`ip` 命令版本过旧等），不影响其它优化项已生效的部分。
 
 ---
 

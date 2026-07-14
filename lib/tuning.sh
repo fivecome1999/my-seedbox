@@ -241,19 +241,71 @@ tuning_ring_buffer() {
 }
 
 # ---- 5) 默认路由初始拥塞窗口 ----
+# 说明：直接把 `ip route show default` 整行文本回传给 ip route change 存在两个
+# 真实问题（已用网络命名空间实测确认，非纸面推测）：
+#   1) 多网卡/多路径独服常见的 ECMP 默认路由（一条路由跨多行 nexthop）按行读
+#      会读丢网关信息，拼出的命令必然被内核拒绝；
+#   2) 即使拼接正确，initcwnd/initrwnd 本身也不支持挂在多路径路由上——这是
+#      iproute2 的语法限制（NH 子句只接受 weight/onlink，不接受拥塞窗口选项），
+#      不是能靠改写命令解决的 bug，只能识别后跳过。
+# 因此这里改为：只处理单路径默认路由，精确抽取 via/dev/onlink 字段重建命令
+# （不再整行盲传，避免格式差异导致解析错位），用 replace 而非 change（更宽容，
+# 不要求先精确匹配已存在的路由），并把内核真实报错打印出来，不再吞掉。
 tuning_initial_cwnd() {
     info "提高默认路由初始拥塞/接收窗口 (initcwnd/initrwnd)..."
-    local changed=0 def
-    # 遍历所有默认路由并加上 initcwnd/initrwnd
-    while IFS= read -r def; do
-        [[ -z "$def" ]] && continue
-        # 复用原路由参数，追加 initcwnd/initrwnd
-        if ip route change $def initcwnd 25 initrwnd 25 >/dev/null 2>&1; then
-            changed=1
+
+    local raw
+    raw="$(ip -4 route show default 2>/dev/null)"
+    if [[ -z "$raw" ]]; then
+        warn "未检测到 IPv4 默认路由，跳过。"
+        return 0
+    fi
+
+    # 多路径（ECMP）检测：多路径路由在文本里含 "nexthop" 关键字。
+    if echo "$raw" | grep -qw nexthop; then
+        warn "检测到多路径(ECMP)默认路由（常见于多网卡负载均衡的独立服务器）。"
+        warn "initcwnd/initrwnd 不支持应用于多路径路由（iproute2 语法限制），已跳过此项，不影响其它优化。"
+        return 0
+    fi
+
+    # 多条独立的默认路由（不同 metric，非多路径）：逐条处理。
+    local applied=0 failed=0 line via dev onlink err
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        via="$(echo "$line" | grep -oP 'via \K[0-9.]+' || true)"
+        dev="$(echo "$line" | grep -oP 'dev \K[^ ]+' || true)"
+        onlink=""
+        echo "$line" | grep -qw onlink && onlink="onlink"
+
+        if [[ -z "$dev" ]]; then
+            warn "无法从路由中解析出网卡设备名，跳过该条：${line}"
+            continue
         fi
-    done < <(ip route show default 2>/dev/null)
-    [[ $changed -eq 1 ]] && success "初始窗口已设置。" \
-                         || warn "未能修改初始窗口（可能无默认路由或权限限制），已跳过。"
+
+        if [[ -n "$via" ]]; then
+            # shellcheck disable=SC2086
+            err="$(ip route replace default via "$via" dev "$dev" $onlink initcwnd 25 initrwnd 25 2>&1)"
+        else
+            # 无网关的直连默认路由（少见但存在）
+            err="$(ip route replace default dev "$dev" initcwnd 25 initrwnd 25 2>&1)"
+        fi
+
+        if [[ $? -eq 0 ]]; then
+            applied=1
+            info "  ${dev}${via:+ via $via} → initcwnd/initrwnd 已设置"
+        else
+            failed=1
+            warn "  ${dev}${via:+ via $via} 设置失败，内核报错：${err:-（无输出）}"
+        fi
+    done <<<"$raw"
+
+    if [[ $applied -eq 1 ]]; then
+        success "初始窗口已设置。"
+    elif [[ $failed -eq 1 ]]; then
+        warn "初始窗口设置失败，已打印具体内核报错，请据此排查（不影响其它优化项）。"
+    else
+        warn "未能解析出可处理的默认路由，已跳过。"
+    fi
 }
 
 # ---- 汇总执行 ----
