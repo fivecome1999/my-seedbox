@@ -66,6 +66,8 @@ bash <(wget -qO- https://raw.githubusercontent.com/fivecome1999/my-seedbox/main/
 ```
 my-seedbox/
 ├── install.sh                    # 唯一入口
+├── bbr_switch.sh                 # 独立的BBR自由切换脚本（bbr/bbrx/bbrz/bbrx_old）
+├── cpu.sh                        # 独立脚本：锁定CPU为performance模式
 ├── lib/
 │   ├── common.sh                 # 公共函数（输出/下载/系统检测/清单解析）
 │   ├── qbittorrent.sh            # qBittorrent 安装
@@ -78,6 +80,8 @@ my-seedbox/
 │   ├── BBRx/                      # BBRx：安装脚本 + C 源码（D12/D13）
 │   ├── BBRz/                      # BBRz：安装脚本 + C 源码（D12/D13）
 │   └── BBRx_old/                 # BBRx_old：安装脚本 + C 源码 + 适配 diff
+├── extras/
+│   └── qBittorrent-noroot.sh     # 无root权限环境（如Feralhosting）下的qB安装脚本
 └── bin/                          # 你自行放置的二进制（见下）
     ├── qbittorrent/<版本>/<架构>/qbittorrent-nox
     └── tools/<架构>/libqbpasswd
@@ -208,6 +212,44 @@ bash <(wget -qO- https://raw.githubusercontent.com/fivecome1999/my-seedbox/main/
 也就是说：**首次**安装某个自定义变种需要编译 + 重启一次（由 `install.sh` 或本脚本触发）；此后在已编译的各变种之间切换是**秒级**的，因为它们注册了各自不同的算法名（`bbrx` / `bbrz` / `bbrxold`），可在内核中共存。
 
 `status` 会列出每个变种的就绪情况（已就绪可秒切 / 已编译待加载 / 未编译需编译），并用 `▶` 标出当前生效的算法。
+
+---
+
+## 独立脚本 cpu.sh（锁定 CPU 为 performance 模式）
+
+系统优化模块（`lib/tuning.sh`）**不碰 CPU governor**（见文首职责边界说明），如需锁定 CPU 频率为 `performance` 模式，用这个独立脚本单独处理：
+
+```bash
+bash <(wget -qO- https://raw.githubusercontent.com/fivecome1999/my-seedbox/main/cpu.sh)
+```
+
+行为：检测 `cpufreq` 接口是否存在（部分虚拟机/容器未暴露该接口，脚本会报错退出，这是正常现象，不代表脚本坏了）→ 自动安装 `cpupower`（apt/dnf/yum 均可）→ 若当前不是 `performance` 就切换过去 → 写一个 `cpuperf.service` 开机自启服务，保证重启后依然锁定为 `performance`。已经是 `performance` 时只会补装持久化服务，不会重复操作。
+
+加 `--verbose` 参数可查看每个核心当前的 governor：
+
+```bash
+bash <(wget -qO- https://raw.githubusercontent.com/fivecome1999/my-seedbox/main/cpu.sh) --verbose
+```
+
+需要 root 权限直接运行（不依赖 sudo 是否安装，和本项目其它脚本一致）。
+
+---
+
+## 无 root 环境安装 qBittorrent（extras/qBittorrent-noroot.sh）
+
+`install.sh` 的 qBittorrent 模块假定你有 root 权限（装 systemd 服务、写 `/usr/bin` 等）。如果是在 Feralhosting 这类**没有 root 权限的商业 Seedbox** 上装机，用这个独立脚本，全程只在你自己的用户目录下操作：
+
+```bash
+bash <(wget -qO- https://raw.githubusercontent.com/fivecome1999/my-seedbox/main/extras/qBittorrent-noroot.sh) <用户名> <密码> <缓存MiB> <WebUI端口> <连接端口>
+```
+
+例如：
+
+```bash
+bash <(wget -qO- https://raw.githubusercontent.com/fivecome1999/my-seedbox/main/extras/qBittorrent-noroot.sh) admin mypassword 512 8080 6881
+```
+
+二进制来自本项目的 qBittorrent 5.0.4（amd64）。安装时会让你交互选择启动方式（`systemd --user` 服务 / `screen` 会话 / 后台 daemon），三种方式都配了对应的启动/停止/重启命令，脚本运行完会打印出来。
 
 ---
 
