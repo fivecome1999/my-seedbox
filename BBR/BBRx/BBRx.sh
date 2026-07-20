@@ -104,14 +104,14 @@ if [ -n "$header_meta_pkg" ]; then
 fi
 
 #Ensure there is header file
-if [ ! -f /usr/src/linux-headers-$(uname -r)/.config ]; then
-    if [[ -z $(apt-cache search linux-headers-$(uname -r)) ]]; then
+if [ ! -f "/usr/src/linux-headers-$(uname -r)/.config" ]; then
+    if [[ -z "$(apt-cache search "linux-headers-$(uname -r)")" ]]; then
         echo "Error: linux-headers-$(uname -r) not found" >&2
         exit 1
     fi
     echo "Installing specific kernel headers: linux-headers-$(uname -r)"
-    apt-get -y install linux-headers-$(uname -r)
-    if [ ! -f /usr/src/linux-headers-$(uname -r)/.config ]; then
+    apt-get -y install "linux-headers-$(uname -r)"
+    if [ ! -f "/usr/src/linux-headers-$(uname -r)/.config" ]; then
         echo "Error: linux-headers-$(uname -r) is not installed" >&2
         exit 1
     fi
@@ -151,7 +151,7 @@ bbr_src=$bbr_file.c
 bbr_obj=$bbr_file.o
 
 mkdir -p $HOME/.bbr/src
-cd $HOME/.bbr/src
+cd "$HOME/.bbr/src" || exit 1
 
 mv $HOME/$bbr_src $HOME/.bbr/src/$bbr_src
 
@@ -214,6 +214,7 @@ echo $bbr_file | tee -a /etc/modules
 # 持久化 sysctl：必须写 /etc/sysctl.d/（Debian 13 起 systemd 移除了兼容符号链接，
 # 开机不再读取 /etc/sysctl.conf，写在那里会导致重启后拥塞控制回落 cubic）。
 # 同时清掉 /etc/sysctl.conf 里的旧条目，避免两处配置漂移混淆。
+# 【同步提醒】此持久化写法共5处副本：lib/bbr.sh、bbr_switch.sh、BBR/*/*.sh(3个)，改文件名/内容格式时务必5处一起改。
 sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
 sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
 cat > /etc/sysctl.d/99-zz-seedbox-bbr.conf << EOF
@@ -223,8 +224,8 @@ net.ipv4.tcp_congestion_control = $algo
 EOF
 sysctl -p /etc/sysctl.d/99-zz-seedbox-bbr.conf > /dev/null
 
-cd $HOME
-rm -r $HOME/.bbr
+cd "$HOME" || true
+rm -r "$HOME/.bbr"
 
 ## Clear
 systemctl disable bbrinstall.service > /dev/null 2>&1

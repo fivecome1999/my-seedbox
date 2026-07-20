@@ -89,7 +89,7 @@ ${_C_BOLD}my-seedbox 安装脚本${_C_RESET}
 
 选项：
   -u  WebUI 用户名
-  -p  WebUI 密码
+  -p  WebUI 密码（也可留空改用环境变量 QB_PASSWORD 传入，见下）
   -c  qBittorrent 磁盘缓存（MiB，建议为内存 1/4）
   -q  qBittorrent 版本（$(qb_ver_hint)）
   -o  WebUI 端口（默认 8080）
@@ -100,6 +100,11 @@ ${_C_BOLD}my-seedbox 安装脚本${_C_RESET}
 
 示例：
   bash install.sh -u admin -p 'S3cr3t' -c 2048 -q 5.0.4 -t -x bbrx
+
+安全提示：
+  -p 的密码会出现在命令行参数里（可能进 shell 历史、被同机用户 ps 看到）。
+  更安全的写法是不给 -p，改用环境变量：
+    QB_PASSWORD='S3cr3t' bash install.sh -u admin -c 2048 -q 5.0.4 -t
 EOF
 }
 
@@ -188,15 +193,38 @@ run_unattended() {
     # qBittorrent（有版本即安装；缺关键项则补问）
     if [[ -n "$qb_ver" ]]; then
         [[ -z "$username" ]] && { ask "WebUI 用户名" "admin"; username="$REPLY_VALUE"; }
+        [[ -z "$cache" ]] && { ask "缓存(MiB)" "2048"; cache="$REPLY_VALUE"; }
+        [[ -z "$webui_port" ]] && webui_port=8080
+        [[ -z "$incoming_port" ]] && incoming_port=45000
+
+        # 命令行模式下也要校验（交互菜单 qb_menu 里已经校验过，但 -c/-o/-i
+        # 这几个参数走命令行直传时此前完全没校验，非法值会被原样写进
+        # qBittorrent.conf，导致装完却启动不了、还不容易看出原因）。
+        # 校验放在询问密码之前：参数给错时直接报错退出，不让用户白输一次密码。
+        if ! [[ "$cache" =~ ^[0-9]+$ ]] || (( cache < 1 )); then
+            die "-c 缓存大小必须是正整数（当前：${cache}）"
+        fi
+        if ! [[ "$webui_port" =~ ^[0-9]+$ ]] || (( webui_port < 1 || webui_port > 65535 )); then
+            die "-o WebUI 端口必须是 1-65535 之间的数字（当前：${webui_port}）"
+        fi
+        if ! [[ "$incoming_port" =~ ^[0-9]+$ ]] || (( incoming_port < 1 || incoming_port > 65535 )); then
+            die "-i 连接端口必须是 1-65535 之间的数字（当前：${incoming_port}）"
+        fi
+
+        # -p 留空时，先看 QB_PASSWORD 环境变量（给纯无人值守/无 TTY 场景用，
+        # 比如 cloud-init：避免密码明文出现在命令行参数里，进 shell 历史、被同机
+        # 其它用户 ps 看到）；两者都没有才回退到交互式掩码输入。
+        [[ -z "$password" ]] && password="${QB_PASSWORD:-}"
         if [[ -z "$password" ]]; then
+            if [[ ! -t 0 ]]; then
+                die "未提供密码且无终端可交互：请用 -p 或环境变量 QB_PASSWORD 传入密码。"
+            fi
             while true; do
                 read -rsp "WebUI 密码: " password; echo
                 [[ -n "$password" ]] && break
             done
         fi
-        [[ -z "$cache" ]] && { ask "缓存(MiB)" "2048"; cache="$REPLY_VALUE"; }
-        [[ -z "$webui_port" ]] && webui_port=8080
-        [[ -z "$incoming_port" ]] && incoming_port=45000
+
         title "安装 qBittorrent"
         qb_install_do "$username" "$password" "$qb_ver" "$cache" "$webui_port" "$incoming_port" || \
             warn "qBittorrent 安装未成功，继续后续步骤。"

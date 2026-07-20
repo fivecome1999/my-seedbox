@@ -84,7 +84,7 @@ set_governor_now(){
 core_summary(){
   # 统计各 governor 数量
   declare -A map=()
-  local f count total=0
+  local f total=0
   for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
     [[ -f "$f" ]] || continue
     local g; g="$(<"$f")"
@@ -109,7 +109,7 @@ core_summary(){
 
 print_policy(){
   local finfo; finfo="$(cpupower frequency-info 2>/dev/null || true)"
-  local driver governors policy line
+  local driver governors policy
   driver="$(grep -m1 'driver:' <<<"$finfo" | sed 's/^[[:space:]]*driver:[[:space:]]*//')"
   governors="$(grep -m1 'available cpufreq governors' <<<"$finfo" | sed 's/^[[:space:]]*available cpufreq governors:[[:space:]]*//')"
   policy="$(grep -m1 'current policy' <<<"$finfo" | sed 's/^[[:space:]]*current policy:[[:space:]]*//')"

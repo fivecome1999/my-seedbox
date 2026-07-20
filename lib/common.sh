@@ -193,9 +193,42 @@ ensure_packages() {
     return 0
 }
 
+# ===== 网络端口 =============================================================
+
+# 检测某 TCP 端口是否已被占用（用于安装前的友好提示，不做强制拦截）
+#   port_in_use <端口号>
+port_in_use() {
+    local port="$1"
+    if command -v ss >/dev/null 2>&1; then
+        ss -Htln "( sport = :${port} )" 2>/dev/null | grep -q .
+    elif command -v lsof >/dev/null 2>&1; then
+        lsof -Pi ":${port}" -sTCP:LISTEN -t >/dev/null 2>&1
+    else
+        return 1
+    fi
+}
+
+# 若 ufw 已安装且处于 active 状态，放行指定端口；否则静默跳过（不装/不启用 ufw
+# 的场景——目标 Seedbox 上更常见——完全不受影响，不会主动去装或启用防火墙）。
+#   open_firewall_port <端口号> [tcp|udp|both，默认 tcp]
+open_firewall_port() {
+    local port="$1" proto="${2:-tcp}"
+    command -v ufw >/dev/null 2>&1 || return 0
+    ufw status 2>/dev/null | grep -q "^Status: active" || return 0
+
+    local p
+    for p in tcp udp; do
+        [[ "$proto" == "$p" || "$proto" == "both" ]] || continue
+        if ufw allow "${port}/${p}" >/dev/null 2>&1; then
+            info "ufw 已放行端口 ${port}/${p}"
+        fi
+    done
+}
+
 # ===== 交互辅助 =============================================================
 # 通用输入提示（带默认值）
 #   ask "提示" 默认值 -> 结果写入全局 REPLY_VALUE
+# shellcheck disable=SC2034  # REPLY_VALUE 是跨文件返回通道，由各调用方读取
 ask() {
     local prompt="$1" default="${2:-}" ans
     if [[ -n "$default" ]]; then

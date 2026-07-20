@@ -1,1 +1,0 @@
-把该架构的静态编译 qbittorrent-nox 可执行文件放在此目录，文件名必须为：qbittorrent-nox

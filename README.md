@@ -18,6 +18,8 @@
 
 换句话说：**CPU / 磁盘 I/O 相关的优化在「系统优化」模块里，不在 BBR 里**。BBR 脚本只改拥塞控制这一个点。两者都属于广义「网络/系统优化」，但边界清晰、各司其职。
 
+> 唯一的交叠点是 `default_qdisc`：系统优化和 BBR 模块都会把它设为 `fq`（两处取值永远一致）。BBR 那份写在 `99-zz-seedbox-bbr.conf`，`zz` 前缀保证按文件名排序时后加载、以它为准，不会冲突。
+
 ---
 
 ## 快速开始
@@ -40,7 +42,7 @@ bash <(wget -qO- https://raw.githubusercontent.com/fivecome1999/my-seedbox/main/
 | 参数 | 说明 |
 |------|------|
 | `-u` | WebUI 用户名 |
-| `-p` | WebUI 密码 |
+| `-p` | WebUI 密码（也可不给 `-p`，改用环境变量 `QB_PASSWORD` 传入，见下方安全提示） |
 | `-c` | qBittorrent 磁盘缓存（MiB，建议为内存的 1/4） |
 | `-q` | qBittorrent 版本（`5.0.4` / `4.3.8`） |
 | `-o` | WebUI 端口（默认 `8080`） |
@@ -50,6 +52,18 @@ bash <(wget -qO- https://raw.githubusercontent.com/fivecome1999/my-seedbox/main/
 | `-h` | 显示帮助 |
 
 只给部分参数时，缺失的关键项会转入交互询问；完全不给参数则进入主菜单。
+
+**安全提示**：`-p` 的密码会出现在命令行参数里（可能进 shell 历史、被同机其它用户 `ps` 看到）。更安全的写法是用环境变量：
+
+```bash
+QB_PASSWORD='YourPassword' bash <(wget -qO- https://raw.githubusercontent.com/fivecome1999/my-seedbox/main/install.sh) \
+     -u admin -c 2048 -q 5.0.4 -t -x bbrx
+```
+
+**安装 qBittorrent 时的自动处理**：
+- 安装前检测 WebUI / 连接端口是否被其它进程占用，占用时给出警告（不阻断安装）。
+- 若检测到 `ufw` 防火墙处于启用状态，自动放行 WebUI 端口（tcp）与连接端口（tcp+udp）；未安装或未启用 ufw 则不做任何防火墙操作。
+- 重装/换版本覆盖 `qBittorrent.conf` 前，自动备份原配置为 `qBittorrent.conf.bak.<时间戳>`。
 
 ---
 
@@ -180,6 +194,8 @@ sysctl net.ipv4.tcp_congestion_control
 
 除了 `install.sh` 里的 BBR 菜单，项目还提供一个独立的快速切换脚本 `bbr_switch.sh`，用于在 **bbr / bbrx / bbrz / bbrx_old** 之间自由切换。
 
+变种列表与 `install.sh` 共用同一份 `versions/bbr.list` 清单：按上文教程新增变种后，本脚本会**自动识别**，无需改脚本。
+
 ```bash
 # 交互菜单
 bash <(wget -qO- https://raw.githubusercontent.com/fivecome1999/my-seedbox/main/bbr_switch.sh)
@@ -249,7 +265,7 @@ bash <(wget -qO- https://raw.githubusercontent.com/fivecome1999/my-seedbox/main/
 bash <(wget -qO- https://raw.githubusercontent.com/fivecome1999/my-seedbox/main/extras/qBittorrent-noroot.sh) admin mypassword 512 8080 6881
 ```
 
-二进制来自本项目的 qBittorrent 5.0.4（amd64）。安装时会让你交互选择启动方式（`systemd --user` 服务 / `screen` 会话 / 后台 daemon），三种方式都配了对应的启动/停止/重启命令，脚本运行完会打印出来。
+二进制来自本项目的 qBittorrent 5.2.3（自动识别 amd64 / arm64 架构）。安装时会让你交互选择启动方式（`systemd --user` 服务 / `screen` 会话 / 后台 daemon），三种方式都配了对应的启动/停止/重启命令，脚本运行完会打印出来。
 
 ---
 
@@ -285,7 +301,7 @@ bash <(wget -qO- https://raw.githubusercontent.com/fivecome1999/my-seedbox/main/
 这是 Debian 13 特有的坑：trixie 的 systemd 移除了 `/etc/sysctl.d/99-sysctl.conf` 兼容符号链接，**开机不再读取 `/etc/sysctl.conf`**。写在那里的 `tcp_congestion_control` 会被静默忽略。本项目已改为写入 `/etc/sysctl.d/99-zz-seedbox-bbr.conf`（开机会读）。若你从旧版本升级，重新执行一次 BBR 安装或切换即可修复；或手动创建该文件后 `sysctl --system`。
 
 **Q：想换回系统自带 BBR？**
-进 BBR 菜单选「恢复系统自带 BBR」，或运行 `bash bbr_switch.sh bbr`。
+进 BBR 菜单选「恢复系统自带 BBR」，或运行 `bash bbr_switch.sh bbr`。菜单版的「恢复」还会顺带清理掉可能残留的待编译服务（`bbrinstall.service`，见上一问），保证下次重启不会意外触发编译。
 
 **Q：系统优化最后一步"提高初始拥塞窗口"提示未能设置/已跳过？**
 分两种情况：

@@ -17,6 +17,10 @@
 # 说明：自定义变种(bbrx/bbrz/bbrx_old)的模块由本项目 install.sh 首次编译，
 #       之后本脚本可在它们之间秒切。若目标从未编译过，本脚本会调用对应的
 #       BBR/<Name>/<Name>.sh 安装脚本，该脚本编译完成后会自动重启。
+#
+# 变种列表来自 versions/bbr.list（本地仓库跑读本地文件，wget管道跑联网取），
+# 与 install.sh 的 BBR 菜单共用同一份清单：按 README 教程新增变种后，
+# 两边会同时自动识别，无需分别维护。
 # ===========================================================================
 
 set -o pipefail
@@ -27,42 +31,82 @@ GH_REPO="${SEEDBOX_GH_REPO:-my-seedbox}"
 GH_BRANCH="${SEEDBOX_GH_BRANCH:-main}"
 RAW_BASE="https://raw.githubusercontent.com/${GH_USER}/${GH_REPO}/${GH_BRANCH}"
 
+# ---- 本地仓库检测：本地跑优先用本地清单文件，wget管道跑则联网取 ----
+SELF_SRC="${BASH_SOURCE[0]:-}"
+LOCAL_ROOT=""
+if [[ -n "$SELF_SRC" && -f "$SELF_SRC" ]]; then
+  _self_dir="$(cd "$(dirname "$SELF_SRC")" && pwd)"
+  [[ -f "${_self_dir}/versions/bbr.list" ]] && LOCAL_ROOT="$_self_dir"
+fi
+
+# 读取仓库内文本文件（本地优先，否则联网取）
+fetch_text(){
+  local rel="$1"
+  if [[ -n "$LOCAL_ROOT" && -f "${LOCAL_ROOT}/${rel}" ]]; then
+    cat "${LOCAL_ROOT}/${rel}"
+    return 0
+  fi
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "${RAW_BASE}/${rel}"
+  else
+    wget -qO- "${RAW_BASE}/${rel}"
+  fi
+}
+
+# 由 id 推出安装脚本目录/文件名。规则与 lib/bbr.sh 的 _bbr_script_name 保持一致：
+# 取 id，把开头 bbr 之后的首字母大写，其余原样保留（含下划线后缀）。
+script_name_for(){
+  local id="$1"
+  case "$id" in
+    bbrx)     echo "BBRx" ;;
+    bbrz)     echo "BBRz" ;;
+    bbrx_old) echo "BBRx_old" ;;
+    *)
+      local rest="${id#bbr}" first tail
+      first="${rest:0:1}"; tail="${rest:1}"
+      printf 'BBR%s%s' "$(echo "$first" | tr '[:lower:]' '[:upper:]')" "$tail"
+      ;;
+  esac
+}
+
 # ---- 变种表 ----
-# 每项： id  显示名  内核算法名(sysctl值)  安装脚本相对路径
-# 内核算法名与 id 多数相同；bbrx_old 特殊 → bbrxold（模块名仍是 tcp_bbrx_old）。
-VARIANT_IDS=(bbr bbrx bbrz bbrx_old)
-declare -A V_LABEL=(
-  [bbr]="BBR（系统自带）"
-  [bbrx]="BBRx（通用优化版）"
-  [bbrz]="BBRz（激进吞吐版）"
-  [bbrx_old]="BBRx Old（旧版手感）"
-)
+# 系统自带 bbr 固定存在；自定义变种从 versions/bbr.list 动态读取（见 load_variants），
+# 不再硬编码，避免新增变种时本脚本和 install.sh 的 BBR 菜单表现不一致。
+VARIANT_IDS=(bbr)
+declare -A V_LABEL=([bbr]="BBR（系统自带）")
 # 内核拥塞控制算法名（sysctl net.ipv4.tcp_congestion_control 用）
-declare -A V_CANAME=(
-  [bbr]="bbr"
-  [bbrx]="bbrx"
-  [bbrz]="bbrz"
-  [bbrx_old]="bbrxold"
-)
+declare -A V_CANAME=([bbr]="bbr")
 # 内核模块名（modprobe / dkms 用）
-declare -A V_MODULE=(
-  [bbr]="tcp_bbr"
-  [bbrx]="tcp_bbrx"
-  [bbrz]="tcp_bbrz"
-  [bbrx_old]="tcp_bbrx_old"
-)
+declare -A V_MODULE=([bbr]="tcp_bbr")
 # DKMS 包名（自定义变种才有）
-declare -A V_DKMS=(
-  [bbrx]="bbrx"
-  [bbrz]="bbrz"
-  [bbrx_old]="bbrx_old"
-)
+declare -A V_DKMS=()
 # 安装脚本相对路径（自定义变种才有）
-declare -A V_SCRIPT=(
-  [bbrx]="BBR/BBRx/BBRx.sh"
-  [bbrz]="BBR/BBRz/BBRz.sh"
-  [bbrx_old]="BBR/BBRx_old/BBRx_old.sh"
-)
+declare -A V_SCRIPT=()
+
+# 从 versions/bbr.list 载入自定义变种，追加进上面几个表。
+# 格式（与 lib/bbr.sh 的 bbr_load_variants 一致）：id|显示名|支持系统|算法名|说明
+load_variants(){
+  local list_text line id name sys ca desc
+  if ! list_text="$(fetch_text "versions/bbr.list")" || [[ -z "$list_text" ]]; then
+    warn "无法读取 versions/bbr.list（网络或仓库地址问题），本次仅能操作系统自带 BBR。"
+    return 1
+  fi
+  while IFS= read -r line; do
+    case "$line" in ''|\#*) continue ;; esac
+    # sys(支持系统)/desc(说明) 两个字段本脚本用不到：不做系统过滤（沿用旧行为，
+    # 不支持的系统会在编译脚本里被明确拦截），菜单空间也放不下长说明。
+    # shellcheck disable=SC2034
+    IFS='|' read -r id name sys ca desc <<<"$line"
+    [[ -z "$id" ]] && continue
+    [[ -z "$ca" ]] && ca="$id"
+    VARIANT_IDS+=("$id")
+    V_LABEL[$id]="$name"
+    V_CANAME[$id]="$ca"
+    V_MODULE[$id]="tcp_${id}"
+    V_DKMS[$id]="$id"
+    V_SCRIPT[$id]="BBR/$(script_name_for "$id")/$(script_name_for "$id").sh"
+  done <<<"$list_text"
+}
 
 # ---- 颜色 ----
 if [[ -t 1 ]]; then
@@ -78,6 +122,9 @@ err(){ printf '%s\n' "${C_RED}[x]${C_RESET} $*" >&2; }
 
 # ---- 前置检查 ----
 [[ "$(id -u)" -eq 0 ]] || { err "请以 root 运行本脚本。"; exit 1; }
+
+# 载入自定义变种（一次即可，供 menu/print_status/do_switch 复用，避免重复联网）
+load_variants
 
 # ---- 工具函数 ----
 
@@ -140,6 +187,8 @@ persist_and_apply(){
   fi
   # 持久化必须写 /etc/sysctl.d/（Debian 13 起开机不再读取 /etc/sysctl.conf）。
   # 同时清掉 sysctl.conf 里的旧条目，避免两处配置漂移。
+  # 【同步提醒】此持久化写法共5处副本：lib/bbr.sh、bbr_switch.sh(这里)、
+  # BBR/*/*.sh(3个安装脚本)，改文件名/内容格式时务必5处一起改。
   sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
   sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
   cat > /etc/sysctl.d/99-zz-seedbox-bbr.conf <<EOF
@@ -268,11 +317,15 @@ menu(){
 case "${1:-}" in
   ""      ) menu ;;
   status  ) print_status ;;
-  bbr|bbrx|bbrz|bbrx_old) do_switch "$1" ;;
   -h|--help)
     grep '^#' "$0" | sed 's/^# \{0,1\}//' | head -30 ;;
   *)
-    err "未知参数：$1"
-    echo "用法： bash bbr_switch.sh [bbr|bbrx|bbrz|bbrx_old|status]"
-    exit 1 ;;
+    if [[ -n "${V_LABEL[$1]:-}" ]]; then
+      do_switch "$1"
+    else
+      err "未知参数：$1"
+      echo "可选变种：${VARIANT_IDS[*]}"
+      echo "用法： bash bbr_switch.sh [变种id|status]"
+      exit 1
+    fi ;;
 esac

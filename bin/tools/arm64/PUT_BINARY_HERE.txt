@@ -1,1 +1,0 @@
-把该架构的 libqbpasswd 可执行文件放在此目录，文件名必须为：libqbpasswd（来自 https://github.com/KozakaiAya/libqbpasswd 编译）

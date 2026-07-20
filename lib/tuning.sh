@@ -75,7 +75,9 @@ tuning_kernel_sysctl() {
 # ===========================================================================
 
 # ---- 拥塞控制与队列 ----
-# 使用 fq 配合 BBR（BBR 模块由 BBR 安装流程另行设置）
+# 使用 fq 配合 BBR（BBR 模块由 BBR 安装流程另行设置）。
+# 注：BBR 模块也会把这一项写进 /etc/sysctl.d/99-zz-seedbox-bbr.conf，
+# 两处取值始终一致（fq），zz 前缀确保开机时以 BBR 模块那份为准，不冲突。
 net.core.default_qdisc = fq
 
 # ---- 接收/发送 socket 缓冲 ----
@@ -135,10 +137,13 @@ EOF
         success "内核参数已应用。"
     else
         warn "部分 sysctl 键在当前内核不可用，已跳过不可用项，其余已生效。"
-        # 逐行尝试，跳过报错项（容错，不改变参数集）
+        # 逐行尝试，跳过报错项（容错，不改变参数集）。
+        # 注意：只能去掉 "=" 两边的空格，不能像 ${line// /} 那样去掉整行所有空格——
+        # tcp_mem/tcp_rmem/tcp_wmem 这类多值参数值内部本身就用空格分隔三个数字，
+        # 全部去空格会把三个数字拼成一个天文数字，直接写坏这几个键。
         while IFS= read -r line; do
             case "$line" in ''|\#*) continue ;; esac
-            sysctl -w "${line// /}" >/dev/null 2>&1 || true
+            sysctl -w "${line/ = /=}" >/dev/null 2>&1 || true
         done <"$SEEDBOX_SYSCTL_FILE"
     fi
 }

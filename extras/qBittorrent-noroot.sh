@@ -5,10 +5,10 @@
 ## ============================================================
 ##
 ## Usage:
-##   bash <(wget -qO- http://net1999.net/misc/qBittorrent.sh) <Username> <Password> <Cache(MiB)> <WebUI Port> <Incoming Port>
+##   bash <(wget -qO- https://raw.githubusercontent.com/fivecome1999/my-seedbox/main/extras/qBittorrent-noroot.sh) <Username> <Password> <Cache(MiB)> <WebUI Port> <Incoming Port>
 ##
 ## Example:
-##   bash <(wget -qO- http://net1999.net/misc/qBittorrent.sh) admin mypassword 512 8080 6881
+##   bash <(wget -qO- https://raw.githubusercontent.com/fivecome1999/my-seedbox/main/extras/qBittorrent-noroot.sh) admin mypassword 512 8080 6881
 ##
 ## Parameters:
 ##   Username       - qBittorrent WebUI login username
@@ -77,8 +77,22 @@ fail_exit() {
 	exit 1
 }
 
-## qBittorrent-nox download URL (from fivecome1999/my-seedbox, qBittorrent 5.0.4)
-QB_DOWNLOAD_URL="https://raw.githubusercontent.com/fivecome1999/my-seedbox/main/bin/qbittorrent/5.0.4/amd64/qbittorrent-nox"
+## Repo config (binaries come from fivecome1999/my-seedbox over HTTPS)
+REPO_RAW_BASE="https://raw.githubusercontent.com/fivecome1999/my-seedbox/main"
+QB_VERSION="5.2.3"
+
+## Detect CPU architecture (repo provides amd64 + arm64 binaries)
+case "$(uname -m)" in
+	x86_64|amd64)  qb_arch="amd64" ;;
+	aarch64|arm64) qb_arch="arm64" ;;
+	*) echo "Unsupported CPU architecture: $(uname -m)" >&2; exit 1 ;;
+esac
+
+QB_DOWNLOAD_URL="${REPO_RAW_BASE}/bin/qbittorrent/${QB_VERSION}/${qb_arch}/qbittorrent-nox"
+## PBKDF2 password tool from this repo (was: plain-HTTP download from a
+## personal domain — unauthenticated HTTP for a password-handling binary
+## is a real MITM risk, so it now comes from the repo over HTTPS)
+QB_PASSWD_TOOL_URL="${REPO_RAW_BASE}/bin/tools/${qb_arch}/libqbpasswd"
 
 ## Grabbing information
 username=$1
@@ -182,19 +196,17 @@ install_qBittorrent_(){
 		buffer_factor=200
 	fi
 
-	## Generate PBKDF2 password
-	wget -q -O $HOME/qb_password_gen "http://net1999.net/misc/qb_password_gen" && chmod +x $HOME/qb_password_gen
+	## Generate PBKDF2 password (tool from this repo over HTTPS; upstream as fallback)
+	wget -q -O $HOME/qb_password_gen "$QB_PASSWD_TOOL_URL" && chmod +x $HOME/qb_password_gen
 	if [ $? -ne 0 ]; then
-		warn "Failed to download qb_password_gen, trying upstream..."
-		# Detect arch for fallback
-		if [[ $(uname -m) == "x86_64" ]]; then
-			arch="x86_64"
-		elif [[ $(uname -m) == "aarch64" ]]; then
-			arch="ARM64"
+		warn "Failed to download libqbpasswd from repo, trying upstream..."
+		# jerry048/Seedbox-Components uses x86_64 / ARM64 as directory names
+		if [ "$qb_arch" = "amd64" ]; then
+			fallback_arch="x86_64"
 		else
-			fail_exit "Unsupported CPU architecture"
+			fallback_arch="ARM64"
 		fi
-		wget -q -O $HOME/qb_password_gen "https://raw.githubusercontent.com/jerry048/Seedbox-Components/main/Torrent%20Clients/qBittorrent/$arch/qb_password_gen" && chmod +x $HOME/qb_password_gen
+		wget -q -O $HOME/qb_password_gen "https://raw.githubusercontent.com/jerry048/Seedbox-Components/main/Torrent%20Clients/qBittorrent/$fallback_arch/qb_password_gen" && chmod +x $HOME/qb_password_gen
 		if [ $? -ne 0 ]; then
 			#Clean up
 			rm -rf $HOME/qbittorrent/Downloads
@@ -203,8 +215,11 @@ install_qBittorrent_(){
 			fail_exit "Failed to download qb_password_gen"
 		fi
 	fi
-	PBKDF2password=$($HOME/qb_password_gen $password)
+	PBKDF2password=$($HOME/qb_password_gen "$password")
 	rm -f $HOME/qb_password_gen
+	if [ -z "$PBKDF2password" ]; then
+		fail_exit "Failed to generate PBKDF2 password hash"
+	fi
 
 	## Write config (qBittorrent 4.4+ format)
 	cat << EOF >$HOME/.config/qBittorrent/qBittorrent.conf
@@ -305,8 +320,8 @@ EOF
 
 ## Main
 tput sgr0; clear
-cd $HOME
-info "Installing qBittorrent"
+cd "$HOME" || fail_exit "Cannot cd to \$HOME"
+info "Installing qBittorrent (${QB_VERSION}, ${qb_arch})"
 
 install_qBittorrent_
 qbittorrent_autostart_

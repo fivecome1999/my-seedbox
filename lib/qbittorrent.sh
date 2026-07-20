@@ -51,12 +51,26 @@ qb_install_do() {
         sleep 2
     fi
 
+    # ---- 端口占用提示（放在停旧实例之后，避免把自己的旧进程误判为冲突）----
+    # 只警告不阻断：检测手段（ss/lsof）在少数场景可能有偏差，不应因此打断安装。
+    if port_in_use "$qb_port"; then
+        warn "WebUI 端口 ${qb_port} 似乎已被其它进程占用，安装会继续，请安装后自行确认 WebUI 能否访问。"
+    fi
+    if port_in_use "$qb_incoming_port"; then
+        warn "BT 连接端口 ${qb_incoming_port} 似乎已被其它进程占用，安装会继续，请留意做种连接是否正常。"
+    fi
+
     # ---- 创建用户 ----
     if ! id "$username" >/dev/null 2>&1; then
         info "创建用户 $username"
-        local enc
-        enc="$(perl -e 'print crypt($ARGV[0], "sb")' "$password" 2>/dev/null || openssl passwd -1 "$password")"
-        useradd -m -p "$enc" -s /bin/bash "$username" || { error "创建用户失败"; return 1; }
+        useradd -m -s /bin/bash "$username" || { error "创建用户失败"; return 1; }
+        # 用 chpasswd 让系统按自己 login.defs 里配置的哈希算法设密码（现代 Debian
+        # 默认 yescrypt/SHA-512），而不是自己拼 crypt() —— 之前用固定 salt 的传统
+        # DES crypt（perl crypt($pw,"sb")）密码会被截断到 8 字符且明显偏弱。
+        if ! printf '%s:%s\n' "$username" "$password" | chpasswd; then
+            error "设置用户密码失败"
+            return 1
+        fi
     else
         info "用户 $username 已存在，复用之。"
     fi
@@ -154,6 +168,11 @@ EOF
 
     # ---- 写配置文件（按格式代号选择模板）----
     local conf="/home/${username}/.config/qBittorrent/qBittorrent.conf"
+    if [[ -f "$conf" ]]; then
+        local conf_backup
+        conf_backup="${conf}.bak.$(date +%Y%m%d%H%M%S)"
+        cp -a "$conf" "$conf_backup" 2>/dev/null && info "已备份原有配置：${conf_backup}"
+    fi
     if [[ "$fmt" == "legacy43" ]]; then
         # 4.2.x / 4.3.x 格式
         cat >"$conf" <<EOF
@@ -207,6 +226,10 @@ WebUI\\Username=${username}
 EOF
     fi
     chown -R "${username}:${username}" "/home/${username}/.config/"
+
+    # ---- 防火墙放行（仅当 ufw 已安装且 active 时才会真正做事，否则静默跳过）----
+    open_firewall_port "$qb_port" tcp
+    open_firewall_port "$qb_incoming_port" both
 
     # ---- 启动 ----
     systemctl start "qbittorrent-nox@${username}" >/dev/null 2>&1

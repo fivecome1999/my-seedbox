@@ -159,14 +159,37 @@ EOF
     return 0
 }
 
+# 清理残留的一次性编译服务。此前某次 BBR 安装若没走完（编译失败/用户没重启），
+# bbrinstall.service 会保持 enabled 等待下次重启重试——这在安装场景是特性，
+# 但用户选择"恢复系统自带 BBR"后它就成了地雷：下次重启会意外又编译一次。
+# 恢复默认时必须把它一并复位，才算真正意义上的完全恢复。
+_bbr_cleanup_pending_install() {
+    local unit=/etc/systemd/system/bbrinstall.service
+    [[ -f "$unit" ]] || return 0
+    # 顺带删掉服务指向的安装脚本（/root/BBRx.sh 等），从单元文件里读路径，
+    # 不硬编码脚本名，新增变种也能正确清理。
+    local script
+    script="$(grep -oP '^ExecStart=\K.*' "$unit" 2>/dev/null || true)"
+    systemctl disable bbrinstall.service >/dev/null 2>&1 || true
+    rm -f "$unit"
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    [[ -n "$script" && -f "$script" ]] && rm -f "$script"
+    info "已清理残留的 BBR 待编译服务（bbrinstall.service）。"
+}
+
 # 恢复系统自带 BBR（整合自你 bbr_switch.sh 的选项4）
 bbr_restore_default() {
     info "恢复系统自带 BBR..."
+    # 若有未走完的编译服务，先复位，避免下次重启意外触发编译
+    _bbr_cleanup_pending_install
     # 移除定制模块的开机加载项（幂等）
     sed -i '/tcp_bbrx_old/d;/tcp_bbrx/d;/tcp_bbrz/d' /etc/modules 2>/dev/null || true
 
     # 持久化写 /etc/sysctl.d/（Debian 13 开机不读 /etc/sysctl.conf），
     # 并清掉 sysctl.conf 里的旧条目防止混淆。
+    # 【同步提醒】此持久化写法共5处副本：lib/bbr.sh(这里)、bbr_switch.sh、
+    # BBR/*/*.sh(3个安装脚本)。后三者受"单文件可独立下载运行"约束无法共用
+    # 函数，改文件名/内容格式时务必5处一起改。
     sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
     sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
     cat >/etc/sysctl.d/99-zz-seedbox-bbr.conf <<'EOF'
@@ -185,6 +208,18 @@ bbr_remove_module() {
     if ! command -v dkms >/dev/null 2>&1; then
         warn "未安装 dkms，无需清理。"
         return 0
+    fi
+    # 清理的是当前正在生效的算法时要先提醒：模块被移除后，重启起拥塞控制
+    # 会回落到内核默认（cubic），做种吞吐会明显变化，别让用户无感中招。
+    local caname cur
+    caname="$(bbr_caname_for "$id")"
+    cur="$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || true)"
+    if [[ -n "$cur" && "$cur" == "$caname" ]]; then
+        warn "变种 ${id}（算法 ${caname}）当前正在生效。清理其模块后，下次重启将回落到系统默认算法（cubic）。"
+        if ! confirm "仍要继续清理吗？（建议先切换到其它变种或恢复系统自带 BBR）"; then
+            info "已取消清理。"
+            return 0
+        fi
     fi
     local found=0 mv
     for mv in $(dkms status 2>/dev/null | grep "${id}/" | awk -F, '{print $1}' | awk -F/ '{print $2}' | sort -u); do
