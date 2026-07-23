@@ -265,7 +265,7 @@ bash <(wget -qO- https://raw.githubusercontent.com/fivecome1999/my-seedbox/main/
 bash <(wget -qO- https://raw.githubusercontent.com/fivecome1999/my-seedbox/main/extras/qBittorrent-noroot.sh) admin mypassword 512 8080 6881
 ```
 
-二进制来自本项目的 qBittorrent 5.2.3（自动识别 amd64 / arm64 架构）。安装时会让你交互选择启动方式（`systemd --user` 服务 / `screen` 会话 / 后台 daemon），三种方式都配了对应的启动/停止/重启命令，脚本运行完会打印出来。
+二进制来自本项目的 qBittorrent 5.2.2（自动识别 amd64 / arm64 架构；目前仅提供 amd64 二进制，arm64 会下载失败并明确报错）。安装时会让你交互选择启动方式（`systemd --user` 服务 / `screen` 会话 / 后台 daemon），三种方式都配了对应的启动/停止/重启命令，脚本运行完会打印出来。
 
 ---
 

@@ -79,7 +79,7 @@ fail_exit() {
 
 ## Repo config (binaries come from fivecome1999/my-seedbox over HTTPS)
 REPO_RAW_BASE="https://raw.githubusercontent.com/fivecome1999/my-seedbox/main"
-QB_VERSION="5.2.3"
+QB_VERSION="5.2.2"
 
 ## Detect CPU architecture (repo provides amd64 + arm64 binaries)
 case "$(uname -m)" in
